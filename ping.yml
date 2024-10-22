@@ -1,0 +1,16 @@
+---
+- name: Playbook básico para testear conectividad y funcionalidad
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: Testear conectividad con el módulo ping
+      ansible.builtin.ping:
+
+    - name: Verificar la información del sistema
+      ansible.builtin.command:
+        cmd: uname -a
+      register: system_info
+
+    - name: Mostrar la información del sistema
+      debug:
+        var: system_info.stdout
