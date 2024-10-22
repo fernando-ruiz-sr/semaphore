@@ -1,0 +1,107 @@
+---
+# disk_space.yml
+- name: Análisis de espacio en disco
+  hosts: comfyui_vms
+  vars:
+    warning_threshold: 80  # Alerta cuando el uso supere 80%
+    critical_threshold: 90 # Crítico cuando supere 90%
+    comfy_path: "/home/superreal/ComfyUI"
+    paths_to_check:
+      - "{{ comfy_path }}/models"
+      - "{{ comfy_path }}/output"
+      - "{{ comfy_path }}/custom_nodes"
+      - "/home/superreal"
+
+  tasks:
+    # Análisis general de disco
+    - name: Verificar espacio en disco por partición
+      ansible.builtin.shell: df -h {{ item }} | tail -n1
+      register: disk_usage
+      loop: "{{ paths_to_check }}"
+      
+    - name: Analizar uso de espacio por directorio
+      ansible.builtin.shell: du -sh {{ item }}
+      register: dir_sizes
+      loop: "{{ paths_to_check }}"
+
+    # Búsqueda de archivos grandes
+    - name: Encontrar archivos grandes (>1GB)
+      ansible.builtin.find:
+        paths: "{{ comfy_path }}"
+        size: 1G
+        recurse: yes
+        file_type: file
+      register: large_files
+
+    # Análisis de archivos temporales
+    - name: Encontrar archivos temporales antiguos
+      ansible.builtin.find:
+        paths: "{{ comfy_path }}/output"
+        age: "7d"
+        patterns: 
+          - "*.png"
+          - "*.jpg"
+          - "*.tmp"
+        recurse: yes
+        file_type: file
+      register: old_temp_files
+
+    # Análisis de modelos
+    - name: Encontrar modelos sin acceso reciente
+      ansible.builtin.find:
+        paths: "{{ comfy_path }}/models"
+        age: "30d"
+        age_stamp: atime
+        patterns:
+          - "*.safetensors"
+          - "*.ckpt"
+          - "*.pth"
+        recurse: yes
+        file_type: file
+      register: unused_models
+
+    # Mostrar resultados
+    - name: Mostrar análisis de espacio
+      ansible.builtin.debug:
+        msg: |
+          === REPORTE DE ESPACIO EN DISCO ===
+          Host: {{ inventory_hostname }}
+          Fecha: {{ ansible_date_time.date }}
+
+          1. USO DE DISCO POR PARTICIÓN:
+          {% for item in disk_usage.results %}
+          {{ item.stdout }}
+          {% endfor %}
+
+          2. USO DE ESPACIO POR DIRECTORIO:
+          {% for item in dir_sizes.results %}
+          {{ item.stdout }}
+          {% endfor %}
+
+          3. ARCHIVOS GRANDES (>1GB):
+          Total encontrados: {{ large_files.files | length }}
+          {% for file in large_files.files %}
+          - {{ file.path }}: {{ (file.size / 1024 / 1024 / 1024) | round(2) }}GB
+          {% endfor %}
+
+          4. ARCHIVOS TEMPORALES ANTIGUOS (>7 días):
+          Total encontrados: {{ old_temp_files.files | length }}
+          Espacio total: {{ (old_temp_files.files | map(attribute='size') | sum / 1024 / 1024) | round(2) }}MB
+
+          5. MODELOS SIN ACCESO RECIENTE (>30 días):
+          Total encontrados: {{ unused_models.files | length }}
+          {% for model in unused_models.files %}
+          - {{ model.path }}: {{ (model.size / 1024 / 1024) | round(2) }}MB
+          {% endfor %}
+
+    # Alertas (solo informativas)
+    - name: Verificar porcentaje de uso
+      ansible.builtin.shell: df / | tail -n1 | awk '{print $5}' | sed 's/%//'
+      register: disk_percent
+      
+    - name: Mostrar alerta si el espacio es crítico
+      ansible.builtin.debug:
+        msg: |
+          ⚠️ ¡ALERTA! El uso de disco en {{ inventory_hostname }} es {{ disk_percent.stdout }}%
+          Se recomienda revisar el espacio disponible.
+      when: disk_percent.stdout|int >= warning_threshold
