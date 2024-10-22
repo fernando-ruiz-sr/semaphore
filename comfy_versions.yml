@@ -45,16 +45,11 @@
 
     - name: Obtener URLs de git para todos los nodos conocidos
       ansible.builtin.command:
-        cmd: "git -C /home/superreal/ComfyUI/custom_nodes/{{ item }} remote get-url origin"
+        cmd: "git -C {{ hostvars[groups['comfyui_vms'][0]].custom_node_dirs.files | selectattr('path', 'search', item) | map(attribute='path') | first }} remote get-url origin"
       with_items: "{{ all_nodes }}"
       register: all_git_urls
       ignore_errors: yes
       when: all_nodes | length > 0
-
-    - name: Crear mapping de nodos a URLs
-      ansible.builtin.set_fact:
-        node_urls: "{{ dict(all_git_urls.results | selectattr('rc', 'defined') | selectattr('rc', 'eq', 0') | map('combine', {'key': item}) | map(attribute='item') | zip(all_git_urls.results | selectattr('rc', 'defined') | selectattr('rc', 'eq', 0') | map(attribute='stdout'))) }}"
-      when: all_git_urls.results is defined
 
     - name: Mostrar nodos faltantes con sus URLs
       ansible.builtin.debug:
@@ -62,6 +57,10 @@
           Nodos faltantes en {{ inventory_hostname }}:
           {% for node in missing_nodes %}
           - {{ node }}
-            URL: {{ node_urls[node] | default('URL no disponible') }}
+            URL: {% for result in all_git_urls.results %}
+                 {% if result.item == node and result.rc == 0 %}
+                   {{ result.stdout }}
+                 {% endif %}
+                 {% endfor %}
           {% endfor %}
       when: missing_nodes | length > 0
