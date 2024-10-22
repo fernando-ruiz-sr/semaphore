@@ -1,0 +1,291 @@
+---
+# install_comfyui.yml
+- name: Instalar y configurar ComfyUI
+  hosts: empty_vms
+  vars:
+    base_path: "/home/superreal"
+    comfy_path: "{{ base_path }}/ComfyUI"
+    models_path: "{{ comfy_path }}/models"
+    conda_path: "{{ base_path }}/miniconda3"
+    conda_env_name: "comfyenv"
+    cuda_version: "12.4"
+    python_version: "3.10"
+    service_user: "superreal"
+    gpu_memory: "16"  # GB de VRAM a reservar
+
+  tasks:
+    # Verificaciones previas mejoradas
+    - name: Verificar si ya existe una instalación
+      ansible.builtin.stat:
+        path: "{{ comfy_path }}"
+      register: comfy_dir
+
+    - name: Detener si ya existe instalación
+      ansible.builtin.fail:
+        msg: "Ya existe una instalación en {{ comfy_path }}"
+      when: comfy_dir.stat.exists
+
+    # Preparación del sistema
+    - name: Actualizar cache de apt y sistema
+      ansible.builtin.apt:
+        update_cache: yes
+        upgrade: yes
+      become: yes
+
+    - name: Instalar dependencias del sistema
+      ansible.builtin.apt:
+        name:
+          - wget
+          - git
+          - libgl1
+          - libglib2.0-0
+          - ubuntu-drivers-common
+          - nvidia-cuda-toolkit
+        state: present
+      become: yes
+
+    # Instalación de drivers NVIDIA
+    - name: Instalar drivers NVIDIA
+      ansible.builtin.command:
+        cmd: ubuntu-drivers autoinstall
+      become: yes
+
+    # Instalación de CUDA
+    - name: Descargar CUDA keyring
+      ansible.builtin.get_url:
+        url: https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
+        dest: /tmp/cuda-keyring.deb
+
+    - name: Instalar CUDA keyring
+      ansible.builtin.apt:
+        deb: /tmp/cuda-keyring.deb
+      become: yes
+
+    - name: Instalar CUDA Toolkit
+      ansible.builtin.apt:
+        name: cuda-toolkit-{{ cuda_version | replace('.', '-') }}
+        state: present
+      become: yes
+
+    # Instalación y configuración de Miniconda
+    - name: Descargar Miniconda
+      ansible.builtin.get_url:
+        url: https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+        dest: /tmp/miniconda.sh
+        mode: '0755'
+      when: not ansible.builtin.stat(conda_path).exists
+
+    - name: Instalar Miniconda
+      ansible.builtin.command:
+        cmd: "bash /tmp/miniconda.sh -b -u -p {{ conda_path }}"
+        creates: "{{ conda_path }}"
+
+    - name: Inicializar Conda
+      ansible.builtin.shell:
+        cmd: "{{ conda_path }}/bin/conda init bash"
+        executable: /bin/bash
+
+    # Crear y configurar entorno Conda
+    - name: Crear entorno Conda
+      ansible.builtin.command:
+        cmd: "{{ conda_path }}/bin/conda create -y -n {{ conda_env_name }} python={{ python_version }}"
+        creates: "{{ conda_path }}/envs/{{ conda_env_name }}"
+
+    - name: Instalar PyTorch con CUDA
+      ansible.builtin.shell:
+        cmd: |
+          source {{ conda_path }}/bin/activate {{ conda_env_name }}
+          conda install -y pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
+        executable: /bin/bash
+
+    # Estructura de directorios
+    - name: Crear directorios necesarios
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ service_user }}"
+        mode: '0755'
+      loop:
+        - "{{ comfy_path }}"
+        - "{{ models_path }}"
+        - "{{ models_path }}/checkpoints"
+        - "{{ models_path }}/clip"
+        - "{{ models_path }}/controlnet"
+        - "{{ models_path }}/diffusers"
+        - "{{ models_path }}/embeddings"
+        - "{{ models_path }}/faces"
+        - "{{ models_path }}/ipadapter"
+        - "{{ models_path }}/loras"
+        - "{{ models_path }}/upscale_models"
+        - "{{ models_path }}/vae"
+        - "{{ comfy_path }}/custom_nodes"
+        - "{{ comfy_path }}/output"
+
+    # Instalación de ComfyUI
+    - name: Clonar ComfyUI
+      ansible.builtin.git:
+        repo: https://github.com/comfyanonymous/ComfyUI.git
+        dest: "{{ comfy_path }}"
+        version: master
+
+    - name: Instalar requisitos de ComfyUI
+      ansible.builtin.shell:
+        cmd: |
+          source {{ conda_path }}/bin/activate {{ conda_env_name }}
+          pip install -r requirements.txt
+        args:
+          chdir: "{{ comfy_path }}"
+
+    # Configuración
+    - name: Crear configuración de ComfyUI
+      ansible.builtin.copy:
+        content: |
+          extra_model_paths:
+            - path: {{ models_path }}
+              folder_paths_cfg:
+                checkpoints: checkpoints
+                clip: clip
+                clip_vision: clip_vision
+                configs: configs
+                controlnet: controlnet
+                embeddings: embeddings
+                loras: loras
+                stereoscopic_models: stereoscopic_models
+                upscale_models: upscale_models
+                vae: vae
+          virtual_memory: {{ gpu_memory }}
+        dest: "{{ comfy_path }}/extra_model_paths.yaml"
+
+    # Script de limpieza
+    - name: Crear script de limpieza
+      ansible.builtin.copy:
+        content: |
+          #!/usr/bin/env python3
+          import os
+          import datetime
+
+          folder_path = '{{ comfy_path }}/output'
+          now = datetime.datetime.now()
+
+          for filename in os.listdir(folder_path):
+              file_path = os.path.join(folder_path, filename)
+              if os.path.isfile(file_path) and filename.endswith('.png'):
+                  creation_time = os.path.getctime(file_path)
+                  creation_date = datetime.datetime.fromtimestamp(creation_time)
+                  if (now - creation_date).total_seconds() > 24*3600:
+                      os.remove(file_path)
+                      print(f"Deleted: {file_path}")
+        dest: "{{ comfy_path }}/cleanup.py"
+        mode: '0755'
+
+    # Servicios
+    - name: Crear script de inicio
+      ansible.builtin.copy:
+        content: |
+          #!/bin/bash
+          source {{ conda_path }}/bin/activate {{ conda_env_name }}
+          python {{ comfy_path }}/main.py --listen 0.0.0.0 --port 8188
+        dest: "{{ comfy_path }}/start.sh"
+        mode: '0755'
+
+    - name: Crear servicio ComfyUI
+      ansible.builtin.copy:
+        content: |
+          [Unit]
+          Description=ComfyUI Service
+          After=network.target
+
+          [Service]
+          Type=simple
+          User={{ service_user }}
+          Group={{ service_user }}
+          WorkingDirectory={{ comfy_path }}
+          ExecStart={{ comfy_path }}/start.sh
+          Restart=always
+          RestartSec=10s
+
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/comfyui.service
+      become: yes
+
+    - name: Crear servicio de limpieza
+      ansible.builtin.copy:
+        content: |
+          [Unit]
+          Description=ComfyUI Cleanup Service
+
+          [Service]
+          Type=oneshot
+          ExecStart={{ comfy_path }}/cleanup.py
+          User={{ service_user }}
+
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/comfyui-cleanup.service
+      become: yes
+
+    - name: Crear timer de limpieza
+      ansible.builtin.copy:
+        content: |
+          [Unit]
+          Description=ComfyUI Cleanup Timer
+
+          [Timer]
+          OnCalendar=*-*-* 12:00:00
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+        dest: /etc/systemd/system/comfyui-cleanup.timer
+      become: yes
+
+    # Activar servicios
+    - name: Recargar systemd
+      ansible.builtin.systemd:
+        daemon_reload: yes
+      become: yes
+
+    - name: Habilitar y arrancar servicios
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: yes
+        state: started
+      loop:
+        - comfyui
+        - comfyui-cleanup.timer
+      become: yes
+
+    # Verificación final
+    - name: Esperar a que el servicio esté disponible
+      ansible.builtin.wait_for:
+        port: 8188
+        timeout: 60
+
+    - name: Verificar que ComfyUI responde
+      ansible.builtin.uri:
+        url: http://localhost:8188
+        method: GET
+      register: comfy_check
+
+    - name: Mostrar resumen de la instalación
+      ansible.builtin.debug:
+        msg: |
+          Instalación de ComfyUI completada en {{ inventory_hostname }}:
+          
+          Directorios:
+          - Instalación: {{ comfy_path }}
+          - Modelos: {{ models_path }}
+          - Conda: {{ conda_path }}
+          
+          Configuración:
+          - Python: {{ python_version }}
+          - CUDA: {{ cuda_version }}
+          - VRAM: {{ gpu_memory }}GB
+          - Entorno Conda: {{ conda_env_name }}
+          
+          Estado: {{ 'OK' if comfy_check is success else 'ERROR' }}
+          
+          Próximos pasos:
+          1. Añadir modelos en {{ models_path }}
+          2. Verificar logs: journalctl -u comfyui.service
