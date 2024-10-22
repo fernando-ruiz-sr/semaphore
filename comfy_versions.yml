@@ -17,9 +17,22 @@
         recurse: yes
       register: model_files
 
-    - name: Mostrar la lista de archivos en models
+    - name: Crear set consolidado de todos los modelos existentes
+      ansible.builtin.set_fact:
+        all_models: "{{ ansible_play_hosts | map('extract', hostvars) | map(attribute='model_files') | map(attribute='files') | map('map', attribute='path') | flatten | unique | list }}"
+
+    - name: Encontrar modelos faltantes en cada host
+      ansible.builtin.set_fact:
+        missing_models: "{{ all_models | difference(model_files.files | map(attribute='path') | list) }}"
+
+    - name: Mostrar modelos faltantes
       ansible.builtin.debug:
-        var: model_files.files | map(attribute='path')
+        msg: |
+          Modelos faltantes en {{ inventory_hostname }}:
+          {% for model in missing_models %}
+          - {{ model }}
+          {% endfor %}
+      when: missing_models | length > 0
 
     - name: Listar las carpetas en custom_nodes
       ansible.builtin.find:
@@ -30,59 +43,29 @@
 
     - name: Obtener los repositorios de git en las carpetas de custom_nodes
       ansible.builtin.command:
-        cmd: "git remote get-url origin"
+        cmd: "git config --get remote.origin.url"
         chdir: "{{ item.path }}"
       with_items: "{{ custom_node_dirs.files }}"
-      when: item.path is directory
       register: custom_node_repos
       ignore_errors: yes
 
-    - name: Mostrar los repositorios de git en nodos personalizados
+    - name: Crear lista de repos válidos
+      ansible.builtin.set_fact:
+        valid_repos: "{{ custom_node_repos.results | selectattr('rc', 'defined') | selectattr('rc', 'eq', 0) | map(attribute='stdout') | list }}"
+
+    - name: Crear set consolidado de todos los nodos existentes
+      ansible.builtin.set_fact:
+        all_nodes: "{{ ansible_play_hosts | map('extract', hostvars) | map(attribute='valid_repos') | flatten | unique | list }}"
+
+    - name: Encontrar nodos faltantes en cada host
+      ansible.builtin.set_fact:
+        missing_nodes: "{{ all_nodes | difference(valid_repos) }}"
+
+    - name: Mostrar nodos faltantes
       ansible.builtin.debug:
-        var: custom_node_repos.results | map(attribute='stdout')
-
-    # Reemplazar los comandos diff por una solución usando sets en Ansible
-    - name: Crear archivos temporales para comparación de modelos
-      when: inventory_hostname != "fundador_vm"
-      block:
-        - name: Crear lista de archivos actual
-          ansible.builtin.set_fact:
-            current_models: "{{ model_files.files | map(attribute='path') | list }}"
-            reference_models: "{{ hostvars['fundador_vm'].model_files.files | map(attribute='path') | list }}"
-
-        - name: Encontrar diferencias en modelos
-          ansible.builtin.set_fact:
-            missing_models: "{{ reference_models | difference(current_models) }}"
-            extra_models: "{{ current_models | difference(reference_models) }}"
-
-        - name: Mostrar diferencias en modelos
-          ansible.builtin.debug:
-            msg: |
-              Modelos faltantes en {{ inventory_hostname }}:
-              {{ missing_models | join('\n') }}
-              
-              Modelos extra en {{ inventory_hostname }}:
-              {{ extra_models | join('\n') }}
-
-    # Similar para nodos personalizados
-    - name: Comparar nodos personalizados
-      when: inventory_hostname != "fundador_vm"
-      block:
-        - name: Crear lista de nodos actual
-          ansible.builtin.set_fact:
-            current_nodes: "{{ custom_node_repos.results | map(attribute='stdout') | select('defined') | list }}"
-            reference_nodes: "{{ hostvars['fundador_vm'].custom_node_repos.results | map(attribute='stdout') | select('defined') | list }}"
-
-        - name: Encontrar diferencias en nodos
-          ansible.builtin.set_fact:
-            missing_nodes: "{{ reference_nodes | difference(current_nodes) }}"
-            extra_nodes: "{{ current_nodes | difference(reference_nodes) }}"
-
-        - name: Mostrar diferencias en nodos
-          ansible.builtin.debug:
-            msg: |
-              Nodos faltantes en {{ inventory_hostname }}:
-              {{ missing_nodes | join('\n') }}
-              
-              Nodos extra en {{ inventory_hostname }}:
-              {{ extra_nodes | join('\n') }}
+        msg: |
+          Nodos faltantes en {{ inventory_hostname }}:
+          {% for node in missing_nodes %}
+          - {{ node }}
+          {% endfor %}
+      when: missing_nodes | length > 0
