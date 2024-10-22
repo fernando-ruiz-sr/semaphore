@@ -1,16 +1,6 @@
 - name: Auditar ComfyUI en cada máquina y mostrar discrepancias
   hosts: comfyui_vms
   tasks:
-    - name: Verificar la versión de ComfyUI
-      ansible.builtin.command:
-        cmd: "git describe --tags"
-        chdir: "/home/superreal/ComfyUI"
-      register: comfyui_version
-
-    - name: Mostrar la versión de ComfyUI
-      ansible.builtin.debug:
-        var: comfyui_version.stdout
-
     - name: Listar todos los archivos en la carpeta models
       ansible.builtin.find:
         paths: "/home/superreal/ComfyUI/models"
@@ -53,27 +43,25 @@
       ansible.builtin.set_fact:
         missing_nodes: "{{ all_nodes | difference(node_folders) }}"
 
-    - name: Mostrar nodos faltantes
+    - name: Obtener URLs de git para todos los nodos conocidos
+      ansible.builtin.command:
+        cmd: "git -C /home/superreal/ComfyUI/custom_nodes/{{ item }} remote get-url origin"
+      with_items: "{{ all_nodes }}"
+      register: all_git_urls
+      ignore_errors: yes
+      when: all_nodes | length > 0
+
+    - name: Crear mapping de nodos a URLs
+      ansible.builtin.set_fact:
+        node_urls: "{{ dict(all_git_urls.results | selectattr('rc', 'defined') | selectattr('rc', 'eq', 0') | map('combine', {'key': item}) | map(attribute='item') | zip(all_git_urls.results | selectattr('rc', 'defined') | selectattr('rc', 'eq', 0') | map(attribute='stdout'))) }}"
+      when: all_git_urls.results is defined
+
+    - name: Mostrar nodos faltantes con sus URLs
       ansible.builtin.debug:
         msg: |
           Nodos faltantes en {{ inventory_hostname }}:
           {% for node in missing_nodes %}
           - {{ node }}
+            URL: {{ node_urls[node] | default('URL no disponible') }}
           {% endfor %}
       when: missing_nodes | length > 0
-
-    - name: Obtener URLs de git para nodos existentes
-      ansible.builtin.command:
-        cmd: "git remote get-url origin"
-        chdir: "/home/superreal/ComfyUI/custom_nodes/{{ item }}"
-      with_items: "{{ node_folders }}"
-      register: git_urls
-      ignore_errors: yes
-
-    - name: Mostrar URLs de git de los nodos instalados
-      ansible.builtin.debug:
-        msg: |
-          URLs de git de los nodos en {{ inventory_hostname }}:
-          {% for result in git_urls.results | selectattr('rc', 'defined') | selectattr('rc', 'eq', 0) %}
-          - {{ result.item }}: {{ result.stdout }}
-          {% endfor %}
