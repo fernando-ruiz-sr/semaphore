@@ -1,0 +1,41 @@
+- name: Listar inventario completo de ComfyUI
+  hosts: comfyui_vms
+  tasks:
+    - name: Listar todos los archivos en la carpeta models
+      ansible.builtin.find:
+        paths: "/home/superreal/ComfyUI/models"
+        recurse: yes
+      register: model_files
+
+    - name: Listar las carpetas en custom_nodes
+      ansible.builtin.find:
+        paths: "/home/superreal/ComfyUI/custom_nodes"
+        recurse: no
+        file_type: directory
+      register: custom_node_dirs
+
+    - name: Crear set consolidado de todos los modelos existentes
+      ansible.builtin.set_fact:
+        all_models: "{{ ansible_play_hosts | map('extract', hostvars) | map(attribute='model_files') | map(attribute='files') | map('map', attribute='path') | flatten | unique | list }}"
+
+    - name: Crear lista de nombres de carpetas de nodos
+      ansible.builtin.set_fact:
+        all_nodes: "{{ ansible_play_hosts | map('extract', hostvars) | map(attribute='custom_node_dirs') | map(attribute='files') | map('map', attribute='path') | map('basename') | flatten | unique | reject('match', '^__') | list }}"
+
+    - name: Mostrar lista completa de modelos
+      ansible.builtin.debug:
+        msg: |
+          Lista completa de modelos en todas las máquinas:
+          {% for model in all_models %}
+          - {{ model }}
+          {% endfor %}
+      run_once: true
+
+    - name: Mostrar lista completa de nodos
+      ansible.builtin.debug:
+        msg: |
+          Lista completa de nodos en todas las máquinas:
+          {% for node in all_nodes %}
+          - {{ node }}
+          {% endfor %}
+      run_once: true
