@@ -41,25 +41,17 @@
         file_type: directory
       register: custom_node_dirs
 
-    - name: Obtener los repositorios de git en las carpetas de custom_nodes
-      ansible.builtin.command:
-        cmd: "git config --get remote.origin.url"
-        chdir: "{{ item.path }}"
-      with_items: "{{ custom_node_dirs.files }}"
-      register: custom_node_repos
-      ignore_errors: yes
-
-    - name: Crear lista de repos válidos
+    - name: Crear lista de nombres de carpetas de nodos
       ansible.builtin.set_fact:
-        valid_repos: "{{ custom_node_repos.results | selectattr('rc', 'defined') | selectattr('rc', 'eq', 0) | map(attribute='stdout') | list }}"
+        node_folders: "{{ custom_node_dirs.files | map(attribute='path') | map('basename') | list | reject('match', '^__') | list }}"
 
     - name: Crear set consolidado de todos los nodos existentes
       ansible.builtin.set_fact:
-        all_nodes: "{{ ansible_play_hosts | map('extract', hostvars) | map(attribute='valid_repos') | flatten | unique | list }}"
+        all_nodes: "{{ ansible_play_hosts | map('extract', hostvars) | map(attribute='node_folders') | flatten | unique | list }}"
 
     - name: Encontrar nodos faltantes en cada host
       ansible.builtin.set_fact:
-        missing_nodes: "{{ all_nodes | difference(valid_repos) }}"
+        missing_nodes: "{{ all_nodes | difference(node_folders) }}"
 
     - name: Mostrar nodos faltantes
       ansible.builtin.debug:
@@ -69,3 +61,19 @@
           - {{ node }}
           {% endfor %}
       when: missing_nodes | length > 0
+
+    - name: Obtener URLs de git para nodos existentes
+      ansible.builtin.command:
+        cmd: "git remote get-url origin"
+        chdir: "/home/superreal/ComfyUI/custom_nodes/{{ item }}"
+      with_items: "{{ node_folders }}"
+      register: git_urls
+      ignore_errors: yes
+
+    - name: Mostrar URLs de git de los nodos instalados
+      ansible.builtin.debug:
+        msg: |
+          URLs de git de los nodos en {{ inventory_hostname }}:
+          {% for result in git_urls.results | selectattr('rc', 'defined') | selectattr('rc', 'eq', 0) %}
+          - {{ result.item }}: {{ result.stdout }}
+          {% endfor %}
