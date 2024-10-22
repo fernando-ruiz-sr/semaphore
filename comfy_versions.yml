@@ -15,15 +15,6 @@
       ansible.builtin.set_fact:
         missing_models: "{{ all_models | difference(model_files.files | map(attribute='path') | list) }}"
 
-    - name: Mostrar modelos faltantes
-      ansible.builtin.debug:
-        msg: |
-          Modelos faltantes en {{ inventory_hostname }}:
-          {% for model in missing_models %}
-          - {{ model }}
-          {% endfor %}
-      when: missing_models | length > 0
-
     - name: Listar las carpetas en custom_nodes
       ansible.builtin.find:
         paths: "/home/superreal/ComfyUI/custom_nodes"
@@ -42,6 +33,15 @@
     - name: Encontrar nodos faltantes en cada host
       ansible.builtin.set_fact:
         missing_nodes: "{{ all_nodes | difference(node_folders) }}"
+
+    - name: Mostrar modelos faltantes
+      ansible.builtin.debug:
+        msg: |
+          Modelos faltantes en {{ inventory_hostname }}:
+          {% for model in missing_models %}
+          - {{ model }}
+          {% endfor %}
+      when: missing_models | length > 0
 
     - name: Mostrar nodos faltantes
       ansible.builtin.debug:
