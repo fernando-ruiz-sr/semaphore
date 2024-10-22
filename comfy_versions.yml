@@ -57,6 +57,6 @@
           Nodos faltantes en {{ inventory_hostname }}:
           {% for node in missing_nodes %}
           - {{ node }}
-            URL: {{ (all_git_urls.results | selectattr('item', 'equalto', node) | selectattr('rc', 'equalto', 0) | map(attribute='stdout') | list | first) | default('URL no disponible') }}
+            URL: {{ (all_git_urls.results | selectattr('item', 'equalto', node) | selectattr('rc', 'equalto', 0) | map(attribute='stdout') | list | first) if (all_git_urls is defined and all_git_urls.results | selectattr('item', 'equalto', node) | length > 0) else 'URL no disponible' }}
           {% endfor %}
       when: missing_nodes | length > 0
