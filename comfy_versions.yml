@@ -1,0 +1,13 @@
+---
+- name: Verificar la versión de ComfyUI en cada máquina
+  hosts: comfyui_vms
+  tasks:
+    - name: Ejecutar el comando para obtener la versión de ComfyUI
+      ansible.builtin.command:
+        cmd: "git describe --tags"
+        chdir: "/home/superreal/ComfyUI"
+      register: comfyui_version
+
+    - name: Mostrar la versión de ComfyUI
+      ansible.builtin.debug:
+        var: comfyui_version.stdout
