@@ -15,6 +15,15 @@
       ansible.builtin.set_fact:
         missing_models: "{{ all_models | difference(model_files.files | map(attribute='path') | list) }}"
 
+    - name: Mostrar modelos faltantes
+      ansible.builtin.debug:
+        msg: |
+          Modelos faltantes en {{ inventory_hostname }}:
+          {% for model in missing_models %}
+          - {{ model }}
+          {% endfor %}
+      when: missing_models | length > 0
+
     - name: Listar las carpetas en custom_nodes
       ansible.builtin.find:
         paths: "/home/superreal/ComfyUI/custom_nodes"
@@ -34,24 +43,13 @@
       ansible.builtin.set_fact:
         missing_nodes: "{{ all_nodes | difference(node_folders) }}"
 
-    # Solo obtenemos las URLs de los nodos que faltan en cada máquina
-    - name: Obtener URLs de los nodos faltantes desde cualquier máquina que los tenga
+    - name: Obtener URLs de git para todos los nodos conocidos
       ansible.builtin.command:
-        cmd: "git -C /home/superreal/ComfyUI/custom_nodes/{{ item }} remote get-url origin"
-      register: missing_node_urls
-      delegate_to: "{{ groups['comfyui_vms'] | difference([inventory_hostname]) | first }}"
-      with_items: "{{ missing_nodes }}"
+        cmd: "git -C {{ hostvars[groups['comfyui_vms'][0]].custom_node_dirs.files | selectattr('path', 'search', item) | map(attribute='path') | first }} remote get-url origin"
+      with_items: "{{ all_nodes }}"
+      register: all_git_urls
       ignore_errors: yes
-      when: missing_nodes | length > 0
-
-    - name: Mostrar modelos faltantes
-      ansible.builtin.debug:
-        msg: |
-          Modelos faltantes en {{ inventory_hostname }}:
-          {% for model in missing_models %}
-          - {{ model }}
-          {% endfor %}
-      when: missing_models | length > 0
+      when: all_nodes | length > 0
 
     - name: Mostrar nodos faltantes con sus URLs
       ansible.builtin.debug:
@@ -59,10 +57,6 @@
           Nodos faltantes en {{ inventory_hostname }}:
           {% for node in missing_nodes %}
           - {{ node }}
-            {% for result in missing_node_urls.results %}
-            {% if result.item == node and result.rc == 0 %}
-            URL: {{ result.stdout }}
-            {% endif %}
-            {% endfor %}
+            URL: {{ all_git_urls.results | selectattr('item', 'equalto', node) | selectattr('rc', 'equalto', 0) | map(attribute='stdout') | list | first | default('URL no disponible') }}
           {% endfor %}
       when: missing_nodes | length > 0
