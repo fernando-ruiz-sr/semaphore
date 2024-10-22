@@ -34,13 +34,16 @@
       ansible.builtin.set_fact:
         missing_nodes: "{{ all_nodes | difference(node_folders) }}"
 
-    - name: Obtener URLs de git de cada nodo
+    # Solo obtenemos las URLs de los nodos que faltan en cada máquina
+    - name: Obtener URLs de los nodos faltantes desde cualquier máquina que los tenga
       ansible.builtin.command:
         cmd: "git -C /home/superreal/ComfyUI/custom_nodes/{{ item }} remote get-url origin"
-      register: node_urls
-      with_items: "{{ node_folders }}"
+      register: missing_node_urls
+      delegate_to: "{{ groups['comfyui_vms'] | difference([inventory_hostname]) | first }}"
+      with_items: "{{ missing_nodes }}"
       ignore_errors: yes
-      
+      when: missing_nodes | length > 0
+
     - name: Mostrar modelos faltantes
       ansible.builtin.debug:
         msg: |
@@ -50,29 +53,16 @@
           {% endfor %}
       when: missing_models | length > 0
 
-    - name: Mostrar nodos faltantes y URLs
+    - name: Mostrar nodos faltantes con sus URLs
       ansible.builtin.debug:
         msg: |
           Nodos faltantes en {{ inventory_hostname }}:
           {% for node in missing_nodes %}
           - {{ node }}
-          {% if node_urls.results is defined %}
-          URLs de git disponibles:
-          {% for result in node_urls.results %}
-          {% if result.rc == 0 %}
-          - {{ result.item }}: {{ result.stdout }}
-          {% endif %}
-          {% endfor %}
-          {% endif %}
+            {% for result in missing_node_urls.results %}
+            {% if result.item == node and result.rc == 0 %}
+            URL: {{ result.stdout }}
+            {% endif %}
+            {% endfor %}
           {% endfor %}
       when: missing_nodes | length > 0
-
-    - name: Mostrar todas las URLs de nodos
-      ansible.builtin.debug:
-        msg: |
-          URLs de todos los nodos instalados:
-          {% for result in node_urls.results %}
-          {% if result.rc == 0 %}
-          - {{ result.item }}: {{ result.stdout }}
-          {% endif %}
-          {% endfor %}
