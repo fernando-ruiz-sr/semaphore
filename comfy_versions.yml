@@ -34,6 +34,13 @@
       ansible.builtin.set_fact:
         missing_nodes: "{{ all_nodes | difference(node_folders) }}"
 
+    - name: Obtener URLs de git de cada nodo
+      ansible.builtin.command:
+        cmd: "git -C /home/superreal/ComfyUI/custom_nodes/{{ item }} remote get-url origin"
+      register: node_urls
+      with_items: "{{ node_folders }}"
+      ignore_errors: yes
+      
     - name: Mostrar modelos faltantes
       ansible.builtin.debug:
         msg: |
@@ -43,11 +50,29 @@
           {% endfor %}
       when: missing_models | length > 0
 
-    - name: Mostrar nodos faltantes
+    - name: Mostrar nodos faltantes y URLs
       ansible.builtin.debug:
         msg: |
           Nodos faltantes en {{ inventory_hostname }}:
           {% for node in missing_nodes %}
           - {{ node }}
+          {% if node_urls.results is defined %}
+          URLs de git disponibles:
+          {% for result in node_urls.results %}
+          {% if result.rc == 0 %}
+          - {{ result.item }}: {{ result.stdout }}
+          {% endif %}
+          {% endfor %}
+          {% endif %}
           {% endfor %}
       when: missing_nodes | length > 0
+
+    - name: Mostrar todas las URLs de nodos
+      ansible.builtin.debug:
+        msg: |
+          URLs de todos los nodos instalados:
+          {% for result in node_urls.results %}
+          {% if result.rc == 0 %}
+          - {{ result.item }}: {{ result.stdout }}
+          {% endif %}
+          {% endfor %}
