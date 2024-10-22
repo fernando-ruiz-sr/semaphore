@@ -15,15 +15,6 @@
       ansible.builtin.set_fact:
         missing_models: "{{ all_models | difference(model_files.files | map(attribute='path') | list) }}"
 
-    - name: Mostrar modelos faltantes
-      ansible.builtin.debug:
-        msg: |
-          Modelos faltantes en {{ inventory_hostname }}:
-          {% for model in missing_models %}
-          - {{ model }}
-          {% endfor %}
-      when: missing_models | length > 0
-
     - name: Listar las carpetas en custom_nodes
       ansible.builtin.find:
         paths: "/home/superreal/ComfyUI/custom_nodes"
@@ -43,20 +34,20 @@
       ansible.builtin.set_fact:
         missing_nodes: "{{ all_nodes | difference(node_folders) }}"
 
-    - name: Obtener URLs de git para todos los nodos conocidos
-      ansible.builtin.command:
-        cmd: "git -C /home/superreal/ComfyUI/custom_nodes/{{ item }} remote get-url origin"
-      loop: "{{ all_nodes }}"
-      register: all_git_urls
-      ignore_errors: yes
-      when: all_nodes | length > 0
+    - name: Mostrar modelos faltantes
+      ansible.builtin.debug:
+        msg: |
+          Modelos faltantes en {{ inventory_hostname }}:
+          {% for model in missing_models %}
+          - {{ model }}
+          {% endfor %}
+      when: missing_models | length > 0
 
-    - name: Mostrar nodos faltantes con sus URLs
+    - name: Mostrar nodos faltantes
       ansible.builtin.debug:
         msg: |
           Nodos faltantes en {{ inventory_hostname }}:
           {% for node in missing_nodes %}
           - {{ node }}
-            URL: {{ all_git_urls.results | selectattr('item', 'equalto', node) | selectattr('rc', 'equalto', 0) | map(attribute='stdout') | list | first | default('URL no disponible') }}
           {% endfor %}
       when: missing_nodes | length > 0
