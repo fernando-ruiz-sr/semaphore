@@ -1,4 +1,3 @@
----
 - name: Auditar ComfyUI en cada máquina y mostrar discrepancias
   hosts: comfyui_vms
   tasks:
@@ -36,41 +35,54 @@
       with_items: "{{ custom_node_dirs.files }}"
       when: item.path is directory
       register: custom_node_repos
+      ignore_errors: yes
 
     - name: Mostrar los repositorios de git en nodos personalizados
       ansible.builtin.debug:
         var: custom_node_repos.results | map(attribute='stdout')
 
-    - name: Comparar discrepancias en archivos de modelos entre máquinas
-      ansible.builtin.shell: |
-        diff <(echo "{{ model_files.files | map(attribute='path') | join('\n') }}") <(echo "{{ hostvars['fundador_vm'].model_files.files | map(attribute='path') | join('\n') }}")
-      register: model_discrepancy
+    # Reemplazar los comandos diff por una solución usando sets en Ansible
+    - name: Crear archivos temporales para comparación de modelos
       when: inventory_hostname != "fundador_vm"
+      block:
+        - name: Crear lista de archivos actual
+          ansible.builtin.set_fact:
+            current_models: "{{ model_files.files | map(attribute='path') | list }}"
+            reference_models: "{{ hostvars['fundador_vm'].model_files.files | map(attribute='path') | list }}"
 
-    - name: Mostrar modelos faltantes en comparación con fundador_vm
-      ansible.builtin.shell: |
-        comm -13 <(echo "{{ hostvars['fundador_vm'].model_files.files | map(attribute='path') | join('\n') }}") <(echo "{{ model_files.files | map(attribute='path') | join('\n') }}")
-      register: missing_models
+        - name: Encontrar diferencias en modelos
+          ansible.builtin.set_fact:
+            missing_models: "{{ reference_models | difference(current_models) }}"
+            extra_models: "{{ current_models | difference(reference_models) }}"
+
+        - name: Mostrar diferencias en modelos
+          ansible.builtin.debug:
+            msg: |
+              Modelos faltantes en {{ inventory_hostname }}:
+              {{ missing_models | join('\n') }}
+              
+              Modelos extra en {{ inventory_hostname }}:
+              {{ extra_models | join('\n') }}
+
+    # Similar para nodos personalizados
+    - name: Comparar nodos personalizados
       when: inventory_hostname != "fundador_vm"
+      block:
+        - name: Crear lista de nodos actual
+          ansible.builtin.set_fact:
+            current_nodes: "{{ custom_node_repos.results | map(attribute='stdout') | select('defined') | list }}"
+            reference_nodes: "{{ hostvars['fundador_vm'].custom_node_repos.results | map(attribute='stdout') | select('defined') | list }}"
 
-    - name: Mostrar modelos que faltan
-      ansible.builtin.debug:
-        msg: "Modelos faltantes en {{ inventory_hostname }}: {{ missing_models.stdout }}"
-      when: missing_models.stdout is defined
+        - name: Encontrar diferencias en nodos
+          ansible.builtin.set_fact:
+            missing_nodes: "{{ reference_nodes | difference(current_nodes) }}"
+            extra_nodes: "{{ current_nodes | difference(reference_nodes) }}"
 
-    - name: Comparar discrepancias en nodos personalizados entre máquinas
-      ansible.builtin.shell: |
-        diff <(echo "{{ custom_node_repos.results | map(attribute='stdout') | join('\n') }}") <(echo "{{ hostvars['fundador_vm'].custom_node_repos.results | map(attribute='stdout') | join('\n') }}")
-      register: node_discrepancy
-      when: inventory_hostname != "fundador_vm"
-
-    - name: Mostrar nodos faltantes en comparación con fundador_vm
-      ansible.builtin.shell: |
-        comm -13 <(echo "{{ hostvars['fundador_vm'].custom_node_repos.results | map(attribute='stdout') | join('\n') }}") <(echo "{{ custom_node_repos.results | map(attribute='stdout') | join('\n') }}")
-      register: missing_nodes
-      when: inventory_hostname != "fundador_vm"
-
-    - name: Mostrar nodos que faltan
-      ansible.builtin.debug:
-        msg: "Nodos faltantes en {{ inventory_hostname }}: {{ missing_nodes.stdout }}"
-      when: missing_nodes.stdout is defined
+        - name: Mostrar diferencias en nodos
+          ansible.builtin.debug:
+            msg: |
+              Nodos faltantes en {{ inventory_hostname }}:
+              {{ missing_nodes | join('\n') }}
+              
+              Nodos extra en {{ inventory_hostname }}:
+              {{ extra_nodes | join('\n') }}
