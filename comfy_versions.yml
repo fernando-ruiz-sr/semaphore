@@ -1,5 +1,5 @@
 ---
-- name: Auditar ComfyUI en cada máquina
+- name: Auditar ComfyUI en cada máquina y mostrar discrepancias
   hosts: comfyui_vms
   tasks:
     - name: Verificar la versión de ComfyUI
@@ -12,49 +12,53 @@
       ansible.builtin.debug:
         var: comfyui_version.stdout
 
-    - name: Listar los modelos en la carpeta checkpoints
+    - name: Listar todos los archivos en la carpeta models
       ansible.builtin.find:
-        paths: "/home/superreal/ComfyUI/models/checkpoints"
-        recurse: no
-        patterns: "*.ckpt"
+        paths: "/home/superreal/ComfyUI/models"
+        recurse: yes
       register: model_files
 
-    - name: Mostrar la lista de modelos
+    - name: Mostrar la lista de archivos en models
       ansible.builtin.debug:
         var: model_files.files | map(attribute='path')
 
-    - name: Listar nodos personalizados
+    - name: Listar los repositorios de git en las carpetas de custom_nodes
+      ansible.builtin.command:
+        cmd: "git remote get-url origin"
+        chdir: "{{ item.path }}"
+      with_items: "{{ custom_node_dirs.files }}"
+      when: item.path is directory
+      register: custom_node_repos
+
+    - name: Listar las carpetas en custom_nodes
       ansible.builtin.find:
         paths: "/home/superreal/ComfyUI/custom_nodes"
         recurse: no
-        patterns: "*.py"
-      register: custom_nodes
+        file_type: directory
+      register: custom_node_dirs
 
-    - name: Mostrar la lista de nodos personalizados
+    - name: Mostrar los repositorios de git en nodos personalizados
       ansible.builtin.debug:
-        var: custom_nodes.files | map(attribute='path')
+        var: custom_node_repos.results | map(attribute='stdout')
 
-    - name: Guardar datos en un archivo local
-      ansible.builtin.copy:
-        content: |
-          ComfyUI Version: {{ comfyui_version.stdout }}
-          Modelos:
-          {% for model in model_files.files %}
-          - {{ model.path }}
-          {% endfor %}
-          Custom Nodes:
-          {% for node in custom_nodes.files %}
-          - {{ node.path }}
-          {% endfor %}
-        dest: "/tmp/comfyui_audit_{{ inventory_hostname }}.txt"
-    
-    - name: Comparar discrepancias entre máquinas
+    - name: Comparar discrepancias en archivos de modelos entre máquinas
       ansible.builtin.shell: |
-        diff /tmp/comfyui_audit_{{ groups['comfyui_vms'][0] }}.txt /tmp/comfyui_audit_{{ inventory_hostname }}.txt
-      when: inventory_hostname != groups['comfyui_vms'][0]
-      register: discrepancies
+        diff <(echo "{{ model_files.files | map(attribute='path') | join('\n') }}") <(echo "{{ models_fundador.files | map(attribute='path') | join('\n') }}")
+      register: model_discrepancy
+      when: inventory_hostname != "fundador_vm"
 
-    - name: Mostrar discrepancias (si las hay)
+    - name: Mostrar discrepancias en modelos
       ansible.builtin.debug:
-        var: discrepancies.stdout
-      when: discrepancies.stdout is defined
+        var: model_discrepancy.stdout
+      when: model_discrepancy.stdout is defined
+
+    - name: Comparar discrepancias en nodos personalizados
+      ansible.builtin.shell: |
+        diff <(echo "{{ custom_node_repos.results | map(attribute='stdout') | join('\n') }}") <(echo "{{ custom_nodes_fundador.results | map(attribute='stdout') | join('\n') }}")
+      register: node_discrepancy
+      when: inventory_hostname != "fundador_vm"
+
+    - name: Mostrar discrepancias en nodos personalizados
+      ansible.builtin.debug:
+        var: node_discrepancy.stdout
+      when: node_discrepancy.stdout is defined
