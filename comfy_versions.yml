@@ -46,7 +46,7 @@
     - name: Obtener URLs de git para todos los nodos conocidos
       ansible.builtin.command:
         cmd: "git -C /home/superreal/ComfyUI/custom_nodes/{{ item }} remote get-url origin"
-      with_items: "{{ all_nodes }}"
+      loop: "{{ all_nodes }}"
       register: all_git_urls
       ignore_errors: yes
       when: all_nodes | length > 0
@@ -57,6 +57,6 @@
           Nodos faltantes en {{ inventory_hostname }}:
           {% for node in missing_nodes %}
           - {{ node }}
-            URL: {{ (all_git_urls.results | selectattr('item', 'equalto', node) | selectattr('rc', 'equalto', 0) | map(attribute='stdout') | list | first) if (all_git_urls is defined and all_git_urls.results | selectattr('item', 'equalto', node) | length > 0) else 'URL no disponible' }}
+            URL: {{ all_git_urls.results | selectattr('item', 'equalto', node) | selectattr('rc', 'equalto', 0) | map(attribute='stdout') | list | first | default('URL no disponible') }}
           {% endfor %}
       when: missing_nodes | length > 0
