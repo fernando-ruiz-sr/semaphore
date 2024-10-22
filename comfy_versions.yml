@@ -1,8 +1,8 @@
 ---
-- name: Verificar la versión de ComfyUI en cada máquina
+- name: Auditar ComfyUI en cada máquina
   hosts: comfyui_vms
   tasks:
-    - name: Ejecutar el comando para obtener la versión de ComfyUI
+    - name: Verificar la versión de ComfyUI
       ansible.builtin.command:
         cmd: "git describe --tags"
         chdir: "/home/superreal/ComfyUI"
@@ -11,3 +11,50 @@
     - name: Mostrar la versión de ComfyUI
       ansible.builtin.debug:
         var: comfyui_version.stdout
+
+    - name: Listar los modelos en la carpeta checkpoints
+      ansible.builtin.find:
+        paths: "/home/superreal/ComfyUI/models/checkpoints"
+        recurse: no
+        patterns: "*.ckpt"
+      register: model_files
+
+    - name: Mostrar la lista de modelos
+      ansible.builtin.debug:
+        var: model_files.files | map(attribute='path')
+
+    - name: Listar nodos personalizados
+      ansible.builtin.find:
+        paths: "/home/superreal/ComfyUI/custom_nodes"
+        recurse: no
+        patterns: "*.py"
+      register: custom_nodes
+
+    - name: Mostrar la lista de nodos personalizados
+      ansible.builtin.debug:
+        var: custom_nodes.files | map(attribute='path')
+
+    - name: Guardar datos en un archivo local
+      ansible.builtin.copy:
+        content: |
+          ComfyUI Version: {{ comfyui_version.stdout }}
+          Modelos:
+          {% for model in model_files.files %}
+          - {{ model.path }}
+          {% endfor %}
+          Custom Nodes:
+          {% for node in custom_nodes.files %}
+          - {{ node.path }}
+          {% endfor %}
+        dest: "/tmp/comfyui_audit_{{ inventory_hostname }}.txt"
+    
+    - name: Comparar discrepancias entre máquinas
+      ansible.builtin.shell: |
+        diff /tmp/comfyui_audit_{{ groups['comfyui_vms'][0] }}.txt /tmp/comfyui_audit_{{ inventory_hostname }}.txt
+      when: inventory_hostname != groups['comfyui_vms'][0]
+      register: discrepancies
+
+    - name: Mostrar discrepancias (si las hay)
+      ansible.builtin.debug:
+        var: discrepancies.stdout
+      when: discrepancies.stdout is defined
