@@ -85,7 +85,7 @@
         sleep 5
         systemctl daemon-reload
       become: yes
-      
+
     # CUDA
     - name: Descargar CUDA keyring
       ansible.builtin.get_url:
@@ -145,42 +145,21 @@
           conda install -y pytorch torchvision torchaudio pytorch-cuda={{ pytorch_cuda_version }} -c pytorch -c nvidia
         executable: /bin/bash
 
-    # Estructura de directorios
-    - name: Crear directorios necesarios
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: directory
-        owner: "{{ service_user }}"
-        mode: '0755'
-      loop:
-        - "{{ comfy_path }}"
-        - "{{ models_path }}/checkpoints"
-        - "{{ models_path }}/clip"
-        - "{{ models_path }}/controlnet"
-        - "{{ models_path }}/diffusers"
-        - "{{ models_path }}/embeddings"
-        - "{{ models_path }}/faces"
-        - "{{ models_path }}/ipadapter"
-        - "{{ models_path }}/loras"
-        - "{{ models_path }}/upscale_models"
-        - "{{ models_path }}/vae"
-        - "{{ comfy_path }}/custom_nodes"
-        - "{{ comfy_path }}/output"
-
     # ComfyUI
     - name: Clonar ComfyUI
       ansible.builtin.git:
         repo: https://github.com/comfyanonymous/ComfyUI.git
         dest: "{{ comfy_path }}"
         version: master
+      register: comfy_clone
 
-    # Estructura de directorios
-    - name: Crear directorios de modelos
+    - name: Crear directorios de modelos y auxiliares
       ansible.builtin.file:
         path: "{{ item }}"
         state: directory
         owner: "{{ service_user }}"
         mode: '0755'
+        recurse: yes
       loop:
         - "{{ models_path }}/checkpoints"
         - "{{ models_path }}/clip"
@@ -194,6 +173,7 @@
         - "{{ models_path }}/vae"
         - "{{ comfy_path }}/custom_nodes"
         - "{{ comfy_path }}/output"
+      when: comfy_clone.changed
 
     - name: Instalar requisitos de ComfyUI
       ansible.builtin.shell:
@@ -202,6 +182,7 @@
           pip install -r requirements.txt
         args:
           chdir: "{{ comfy_path }}"
+      when: comfy_clone.changed
 
     # Configuración y servicio
     - name: Crear configuración de ComfyUI
