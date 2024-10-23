@@ -1,7 +1,7 @@
 ---
 # install_comfyui.yml
 - name: Instalar y configurar ComfyUI
-  hosts: empty_vms
+  hosts: emtpy_vms
   vars:
     # Variables de sistema y CUDA
     os_version: "2204"        # Ejemplo: 2004, 2204, 2404
