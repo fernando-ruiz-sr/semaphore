@@ -26,6 +26,18 @@
     cuda_repo_url: "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu{{ os_version }}/{{ os_arch }}"
 
   tasks:
+    # Limpieza inicial del sistema
+    - name: Limpiar bloqueos del sistema
+      ansible.builtin.shell: |
+        killall dpkg apt apt-get 2>/dev/null || true
+        rm -f /var/lib/dpkg/lock* || true
+        rm -f /var/lib/apt/lists/lock || true
+        rm -f /var/cache/apt/archives/lock || true
+        rm -f /var/cache/debconf/*.dat.lock || true
+        dpkg --configure -a || true
+      become: yes
+      ignore_errors: yes
+
     # Verificación inicial
     - name: Verificar si ya existe una instalación
       ansible.builtin.stat:
@@ -39,10 +51,9 @@
 
     # Sistema y drivers
     - name: Actualizar sistema
-      ansible.builtin.apt:
-        update_cache: yes
-        upgrade: yes
-        cache_valid_time: 3600
+      ansible.builtin.shell: |
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get -y --allow-downgrades upgrade
       become: yes
 
     - name: Instalar dependencias básicas
@@ -58,9 +69,9 @@
 
     - name: Instalar drivers NVIDIA
       ansible.builtin.shell: |
-        ubuntu-drivers autoinstall
+        DEBIAN_FRONTEND=noninteractive ubuntu-drivers autoinstall
       become: yes
-
+      
     # CUDA
     - name: Descargar CUDA keyring
       ansible.builtin.get_url:
