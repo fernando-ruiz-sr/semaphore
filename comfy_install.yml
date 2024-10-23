@@ -27,14 +27,24 @@
 
   tasks:
     # Limpieza inicial del sistema
-    - name: Limpiar bloqueos del sistema
+    - name: Eliminar drivers NVIDIA existentes
       ansible.builtin.shell: |
-        killall dpkg apt apt-get 2>/dev/null || true
+        apt-get purge -y nvidia* cuda* --allow-change-held-packages || true
+        apt-get autoremove -y || true
+      become: yes
+      ignore_errors: yes
+
+    - name: Limpiar sistema de paquetes
+      ansible.builtin.shell: |
+        lsof /var/lib/dpkg/lock* /var/lib/apt/lists/lock /var/cache/apt/archives/lock /var/cache/debconf/*.dat* 2>/dev/null | awk '{print $2}' | xargs kill -9 2>/dev/null || true
         rm -f /var/lib/dpkg/lock* || true
         rm -f /var/lib/apt/lists/lock || true
         rm -f /var/cache/apt/archives/lock || true
-        rm -f /var/cache/debconf/*.dat.lock || true
-        dpkg --configure -a || true
+        rm -f /var/cache/debconf/*.dat* || true
+        sleep 5
+        dpkg --configure -a
+        apt-get clean
+        apt-get update --fix-missing
       become: yes
       ignore_errors: yes
 
@@ -52,8 +62,7 @@
     # Sistema y drivers
     - name: Actualizar sistema
       ansible.builtin.shell: |
-        apt-get update
-        DEBIAN_FRONTEND=noninteractive apt-get -y --allow-downgrades upgrade
+        apt-get -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -y dist-upgrade
       become: yes
 
     - name: Instalar dependencias básicas
@@ -64,12 +73,17 @@
           - libgl1
           - libglib2.0-0
           - ubuntu-drivers-common
+          - dkms
+          - build-essential
         state: present
+        update_cache: yes
       become: yes
 
     - name: Instalar drivers NVIDIA
       ansible.builtin.shell: |
         DEBIAN_FRONTEND=noninteractive ubuntu-drivers autoinstall
+        sleep 5
+        systemctl daemon-reload
       become: yes
       
     # CUDA
