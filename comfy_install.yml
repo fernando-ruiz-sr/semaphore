@@ -112,12 +112,17 @@
       become: yes
 
     # Instalación y configuración de Miniconda
+    - name: Verificar si Miniconda ya está instalado
+      ansible.builtin.stat:
+        path: "{{ conda_path }}"
+      register: conda_check
+
     - name: Descargar Miniconda
       ansible.builtin.get_url:
         url: https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
         dest: /tmp/miniconda.sh
         mode: '0755'
-      when: not ansible.builtin.stat(conda_path).exists
+      when: not conda_check.stat.exists
 
     - name: Instalar Miniconda
       ansible.builtin.command:
