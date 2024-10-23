@@ -4,7 +4,7 @@
   hosts: emtpy_vms
   vars:
     # Variables de sistema y CUDA
-    os_version: "2204"        # Ejemplo: 2004, 2204, 2404
+    os_version: "2204"
     os_arch: "x86_64"
     cuda_keyring_version: "1.1-1"
     cuda_version: "12.4"
@@ -56,11 +56,33 @@
         msg: "Ya existe una instalación en {{ comfy_path }}"
       when: comfy_dir.stat.exists
 
+    # Recuperación de paquetes
+    - name: Verificar estado de dpkg
+      ansible.builtin.command:
+        cmd: dpkg --configure -a
+      become: yes
+      register: dpkg_check
+      changed_when: dpkg_check.rc != 0
+      failed_when: false
+
+    - name: Reparar paquetes rotos con apt
+      ansible.builtin.command:
+        cmd: apt-get install -f
+      become: yes
+      register: apt_repair
+      changed_when: apt_repair.rc != 0
+      failed_when: false
+
     # Preparación del sistema
-    - name: Actualizar cache de apt y sistema
+    - name: Actualizar cache de apt
       ansible.builtin.apt:
         update_cache: yes
+      become: yes
+
+    - name: Actualizar sistema
+      ansible.builtin.apt:
         upgrade: yes
+        force_apt_get: yes
       become: yes
 
     - name: Instalar dependencias del sistema
