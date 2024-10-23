@@ -180,8 +180,8 @@
         cmd: |
           source {{ conda_path }}/bin/activate {{ conda_env_name }}
           pip install -r requirements.txt
-        args:
-          chdir: "{{ comfy_path }}"
+        executable: /bin/bash
+        chdir: "{{ comfy_path }}"
       when: comfy_clone.changed
 
     # Configuración y servicio
