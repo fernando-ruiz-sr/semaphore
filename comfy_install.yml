@@ -77,7 +77,9 @@
     # Instalación de drivers NVIDIA
     - name: Instalar drivers NVIDIA
       ansible.builtin.command:
-        cmd: ubuntu-drivers autoinstall
+        cmd: DEBIAN_FRONTEND=noninteractive ubuntu-drivers autoinstall
+      environment:
+        DEBIAN_FRONTEND: noninteractive
       become: yes
 
     # Instalación de CUDA
