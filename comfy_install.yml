@@ -20,7 +20,7 @@
     conda_env_name: "comfyenv"
     python_version: "3.10"
     service_user: "superreal"
-    gpu_memory: "80"  # Actualizado a 80GB
+    gpu_memory: "80"
 
     # Variables calculadas
     cuda_repo_url: "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu{{ os_version }}/{{ os_arch }}"
@@ -91,124 +91,125 @@
         state: present
         update_cache: yes
       become: yes
-      
-    # Miniconda y entorno
-    - name: Configurar Python
-      block:
-        - name: Instalar Miniconda
-          ansible.builtin.get_url:
-            url: https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
-            dest: /tmp/miniconda.sh
-            mode: '0755'
-          when: not ansible.builtin.stat(conda_path).stat.exists
 
-        - name: Ejecutar instalador Miniconda
-          ansible.builtin.command:
-            cmd: "bash /tmp/miniconda.sh -b -u -p {{ conda_path }}"
-            creates: "{{ conda_path }}"
+    # Miniconda
+    - name: Verificar instalación de Miniconda
+      ansible.builtin.stat:
+        path: "{{ conda_path }}"
+      register: conda_check
 
-        - name: Configurar Conda
-          ansible.builtin.shell:
-            cmd: |
-              {{ conda_path }}/bin/conda init bash
-              {{ conda_path }}/bin/conda create -y -n {{ conda_env_name }} python={{ python_version }}
-              source {{ conda_path }}/bin/activate {{ conda_env_name }}
-              conda install -y pytorch torchvision torchaudio pytorch-cuda={{ pytorch_cuda_version }} -c pytorch -c nvidia
-            executable: /bin/bash
+    - name: Descargar Miniconda
+      ansible.builtin.get_url:
+        url: https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+        dest: /tmp/miniconda.sh
+        mode: '0755'
+      when: not conda_check.stat.exists
+
+    - name: Instalar Miniconda
+      ansible.builtin.command:
+        cmd: "bash /tmp/miniconda.sh -b -u -p {{ conda_path }}"
+        creates: "{{ conda_path }}"
+      when: not conda_check.stat.exists
+
+    - name: Configurar Conda
+      ansible.builtin.shell:
+        cmd: |
+          {{ conda_path }}/bin/conda init bash
+          {{ conda_path }}/bin/conda create -y -n {{ conda_env_name }} python={{ python_version }}
+          source {{ conda_path }}/bin/activate {{ conda_env_name }}
+          conda install -y pytorch torchvision torchaudio pytorch-cuda={{ pytorch_cuda_version }} -c pytorch -c nvidia
+        executable: /bin/bash
+
+    # Estructura de directorios
+    - name: Crear directorios necesarios
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ service_user }}"
+        mode: '0755'
+      loop:
+        - "{{ comfy_path }}"
+        - "{{ models_path }}/checkpoints"
+        - "{{ models_path }}/clip"
+        - "{{ models_path }}/controlnet"
+        - "{{ models_path }}/diffusers"
+        - "{{ models_path }}/embeddings"
+        - "{{ models_path }}/faces"
+        - "{{ models_path }}/ipadapter"
+        - "{{ models_path }}/loras"
+        - "{{ models_path }}/upscale_models"
+        - "{{ models_path }}/vae"
+        - "{{ comfy_path }}/custom_nodes"
+        - "{{ comfy_path }}/output"
 
     # ComfyUI
-    - name: Instalar ComfyUI
-      block:
-        - name: Crear estructura de directorios
-          ansible.builtin.file:
-            path: "{{ item }}"
-            state: directory
-            owner: "{{ service_user }}"
-            mode: '0755'
-          loop:
-            - "{{ comfy_path }}"
-            - "{{ models_path }}/checkpoints"
-            - "{{ models_path }}/clip"
-            - "{{ models_path }}/controlnet"
-            - "{{ models_path }}/diffusers"
-            - "{{ models_path }}/embeddings"
-            - "{{ models_path }}/faces"
-            - "{{ models_path }}/ipadapter"
-            - "{{ models_path }}/loras"
-            - "{{ models_path }}/upscale_models"
-            - "{{ models_path }}/vae"
-            - "{{ comfy_path }}/custom_nodes"
-            - "{{ comfy_path }}/output"
+    - name: Clonar ComfyUI
+      ansible.builtin.git:
+        repo: https://github.com/comfyanonymous/ComfyUI.git
+        dest: "{{ comfy_path }}"
+        version: master
 
-        - name: Clonar e instalar ComfyUI
-          ansible.builtin.git:
-            repo: https://github.com/comfyanonymous/ComfyUI.git
-            dest: "{{ comfy_path }}"
-            version: master
-
-        - name: Instalar dependencias Python
-          ansible.builtin.shell:
-            cmd: |
-              source {{ conda_path }}/bin/activate {{ conda_env_name }}
-              pip install -r requirements.txt
-            args:
-              chdir: "{{ comfy_path }}"
+    - name: Instalar requisitos de ComfyUI
+      ansible.builtin.shell:
+        cmd: |
+          source {{ conda_path }}/bin/activate {{ conda_env_name }}
+          pip install -r requirements.txt
+        args:
+          chdir: "{{ comfy_path }}"
 
     # Configuración y servicio
-    - name: Configurar servicio
-      block:
-        - name: Crear archivos de configuración
-          ansible.builtin.copy:
-            content: |
-              extra_model_paths:
-                - path: {{ models_path }}
-                  folder_paths_cfg:
-                    checkpoints: checkpoints
-                    clip: clip
-                    clip_vision: clip_vision
-                    controlnet: controlnet
-                    embeddings: embeddings
-                    loras: loras
-                    upscale_models: upscale_models
-                    vae: vae
-              virtual_memory: {{ gpu_memory }}
-            dest: "{{ comfy_path }}/extra_model_paths.yaml"
+    - name: Crear configuración de ComfyUI
+      ansible.builtin.copy:
+        content: |
+          extra_model_paths:
+            - path: {{ models_path }}
+              folder_paths_cfg:
+                checkpoints: checkpoints
+                clip: clip
+                clip_vision: clip_vision
+                controlnet: controlnet
+                embeddings: embeddings
+                loras: loras
+                upscale_models: upscale_models
+                vae: vae
+          virtual_memory: {{ gpu_memory }}
+        dest: "{{ comfy_path }}/extra_model_paths.yaml"
 
-        - name: Crear script de inicio
-          ansible.builtin.copy:
-            content: |
-              #!/bin/bash
-              source {{ conda_path }}/bin/activate {{ conda_env_name }}
-              python {{ comfy_path }}/main.py --listen 0.0.0.0 --port 8188
-            dest: "{{ comfy_path }}/start.sh"
-            mode: '0755'
-            owner: "{{ service_user }}"
+    - name: Crear script de inicio
+      ansible.builtin.copy:
+        content: |
+          #!/bin/bash
+          source {{ conda_path }}/bin/activate {{ conda_env_name }}
+          python {{ comfy_path }}/main.py --listen 0.0.0.0 --port 8188
+        dest: "{{ comfy_path }}/start.sh"
+        mode: '0755'
+        owner: "{{ service_user }}"
 
-        - name: Crear servicio systemd
-          ansible.builtin.copy:
-            dest: /etc/systemd/system/comfyui.service
-            content: |
-              [Unit]
-              Description=ComfyUI Service
-              After=network.target
+    - name: Crear servicio systemd
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/comfyui.service
+        content: |
+          [Unit]
+          Description=ComfyUI Service
+          After=network.target
 
-              [Service]
-              Type=simple
-              User={{ service_user }}
-              Group={{ service_user }}
-              WorkingDirectory={{ comfy_path }}
-              ExecStart={{ comfy_path }}/start.sh
-              Restart=always
-              RestartSec=10s
+          [Service]
+          Type=simple
+          User={{ service_user }}
+          Group={{ service_user }}
+          WorkingDirectory={{ comfy_path }}
+          ExecStart={{ comfy_path }}/start.sh
+          Restart=always
+          RestartSec=10s
 
-              [Install]
-              WantedBy=multi-user.target
-          become: yes
+          [Install]
+          WantedBy=multi-user.target
+      become: yes
 
-        - name: Activar servicio
-          ansible.builtin.systemd:
-            name: comfyui
-            enabled: yes
-            state: started
-            daemon_reload: yes
-          become: yes
+    - name: Activar servicio
+      ansible.builtin.systemd:
+        name: comfyui
+        enabled: yes
+        state: started
+        daemon_reload: yes
+      become: yes
